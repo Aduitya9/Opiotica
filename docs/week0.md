@@ -27,21 +27,22 @@ settings and the same-GPU rule are in [colab.md](colab.md).
 
 ## DAY 1 — the things with lead times, first
 
-Three of these are reviewed by a human or need you to accept a licence in your own account.
-**I will not create an account, accept a licence, or generate an API key on your behalf** —
-not for Hugging Face, not for Zenodo, not for anything. Those are yours to do.
+One of these needs you to accept a licence in your own account. **No account is created and no
+licence accepted on your behalf** — those are yours to do.
 
-### 1.1 — AIROGS (do this before anything else; it is the only unavoidable wait)
+### 1.1 — AIROGS: nothing to request (correction)
 
-1. Open <https://zenodo.org/records/5793241>
-2. Click **Request access**.
-3. In the purpose box, say plainly what it is for — something like: *final-year undergraduate
-   research on how expert labelling conventions affect the referral rate of automated glaucoma
-   screening; AIROGS is used to estimate the population-scale effect.*
-4. Note the date you sent it. Approval is manual and can take days or weeks.
+An earlier version of this plan said AIROGS needed a manually approved Zenodo request and told
+you to send it first. **That was wrong**, and it was checked on 13 November 2026 against the
+record and the Zenodo API: <https://zenodo.org/records/5793241> is **open access**, 7 files,
+54.9 GB, direct download, no request and no login. There is no queue and nothing to wait for.
+Download it in Week 4 when you actually need it.
 
-While you wait, **AIROGS-Lite** (<https://zenodo.org/record/7178671>) stands in. Nothing in
-Weeks 0–3 is blocked by AIROGS.
+What does matter is the licence: **CC BY-NC-ND 4.0** — Attribution, Non-Commercial,
+**No Derivatives**. So AIROGS is used to **compute statistics only**. You may publish the
+numbers; you may not ship a crop, a derived image, or an AIROGS-trained checkpoint in any
+released artefact. This is stricter than RIGA's NC-only terms. It is written into
+`PREREGISTRATION.md` §10, Amendment 1.
 
 ### 1.2 — RETFound (gated model, one click, but only you can click it)
 
@@ -89,7 +90,8 @@ Read `PREREGISTRATION.md` end to end, especially §5. It is short on purpose. On
 has run you are not allowed to change the threshold, and the point of reading it today is that
 you will have agreed to that while you still had nothing invested.
 
-**End of day 1:** access requests sent, tests green, prereg read.
+**End of day 1:** RETFound licence accepted, `HF_TOKEN` in Colab Secrets, tests green,
+pre-registration read.
 
 ---
 

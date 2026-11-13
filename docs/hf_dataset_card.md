@@ -51,8 +51,10 @@ tables are here from the start so the notebooks can run without the GitHub check
 (<https://refuge.grand-challenge.org/>). The public mirror's card states apache-2.0, but that
 is the mirror uploader's label and does not transfer a right to re-publish the imagery.
 
-**RIGA** is CC BY-NC and is deliberately **absent** from this repository, so that nothing
-released from this project inherits the non-commercial clause.
+**RIGA** (CC BY-NC) and **AIROGS** (CC BY-NC-ND) are deliberately **absent** from this
+repository. AIROGS is openly downloadable from Zenodo, but its No-Derivatives clause means
+this project publishes measurements computed from it and redistributes nothing derived from
+its images — no crops, no checkpoints trained on it.
 
 ## Reproducing it instead of downloading it
 

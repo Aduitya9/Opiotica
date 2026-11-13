@@ -176,4 +176,27 @@ correction is a **fitted curve in cup and disc size**, never a single number.
 Anything changed after 13 November 2026 is appended here with a date and a reason. The text
 above is never edited.
 
-*(none yet)*
+### Amendment 1 — 13 November 2026 — AIROGS access and licence
+
+**No model had been trained when this was written. The gate in §5 is untouched.**
+
+§9 limitation 3 and `docs/datasets.md` stated that AIROGS requires a manually approved access
+request. **That was wrong.** Checked against the Zenodo record and its API on 13 November 2026:
+record 5793241 is **open access** — 7 files, 54.9 GB, direct download, no request, no login.
+
+The real constraint is the licence, which was recorded only as "see record":
+
+> **CC BY-NC-ND 4.0** — Attribution, **Non-Commercial, No Derivatives**.
+> AIROGS-Lite (record 7178671) carries the same licence.
+
+Consequences, adopted now rather than discovered at submission:
+
+1. AIROGS is used to **compute statistics only** — referral rates and how they move when the
+   convention changes. Measurements are reported; nothing derived from its images is
+   distributed.
+2. No AIROGS crop, derived image, or AIROGS-trained checkpoint enters any released artefact,
+   the demo app included. ND makes this stricter than the NC-only case of RIGA.
+3. The paper's data-availability statement names AIROGS as open under CC BY-NC-ND and states
+   that this study redistributes nothing derived from it.
+
+This removes the only claimed scheduling dependency in Week 0; nothing else in the plan moves.

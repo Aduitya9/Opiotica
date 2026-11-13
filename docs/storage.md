@@ -52,7 +52,8 @@ copy; Drive is the scratch space.
 | `crops/*.npz` — contains REFUGE pixels | Hugging Face | **no** |
 | `runs/*/best.pt` — model weights | Hugging Face | **no** |
 | `results/*.csv`, `gate.json` — derived | both | yes on GitHub |
-| Anything RIGA-derived | neither, until the NC clause is checked | **no** |
+| Anything RIGA-derived (**CC BY-NC**) | paper only, never a released artefact | **no** |
+| Anything AIROGS-derived (**CC BY-NC-ND**) | paper only — measurements, never images or weights | **no** |
 
 When the paper is submitted, the Hugging Face repo can be opened to reviewers individually
 without making it public.

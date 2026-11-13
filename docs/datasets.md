@@ -15,13 +15,20 @@ citing in the paper; `tools/check_links.py` does it in one command.
 | 6 | PAPILA original | <https://figshare.com/articles/dataset/PAPILA/14798004> | — | 2 | CC BY | open ✅ |
 | 7 | **Drishti-GS** | <https://huggingface.co/datasets/dennisheraldi/Drishti_GS> | 0.12 GB | 4 | check card | open ✅ |
 | 8 | Drishti-GS original (IIIT-H) | <https://cvit.iiit.ac.in/projects/mip/drishti-gs/mip-dataset2/Home.php> | — | 4 | research use | open ✅ |
-| 9 | **AIROGS** — screening scale | <https://zenodo.org/records/5793241> | **54.9 GB** | graders | see record | ⚠️ **manual approval** |
+| 9 | **AIROGS** — screening scale | <https://zenodo.org/records/5793241> | **54.9 GB**, 7 files | graders | **CC BY-NC-ND 4.0** | **open ✅ — no request needed** |
 | 10 | AIROGS challenge page | <https://airogs.grand-challenge.org/data-and-challenge/> | — | — | — | open ✅ |
-| 11 | AIROGS-Lite — fallback while waiting | <https://zenodo.org/record/7178671> | small | — | — | open ✅ |
+| 11 | AIROGS-Lite — small subset | <https://zenodo.org/record/7178671> | 4 files | — | **CC BY-NC-ND 4.0** | open ✅ |
 | 12 | **RIGA** — replication panel | <https://deepblue.lib.umich.edu/data/concern/data_sets/3b591905z> | 12.9 GB | **6** | **CC BY-NC** | ⚠️ browser + Globus |
 
-**AIROGS**: 101,442 images, 54,274 subjects, ~500 sites. The Zenodo request is reviewed by a
-human. **Send it on day 1** — it is the only thing in this project that cannot be compressed.
+**AIROGS**: 101,442 images, 54,274 subjects, ~500 sites. **Open access — download it whenever
+you need it.** An earlier draft of this file claimed the Zenodo record required a manually
+approved request; that was checked on 13 November 2026 against the record and its API and is
+false. There is no queue and no lead time.
+
+The real constraint is **CC BY-NC-ND 4.0**: Attribution, Non-Commercial, **No Derivatives**.
+AIROGS is therefore used to **compute statistics only**. Measurements are published; no crop,
+no derived image and no AIROGS-trained checkpoint goes into any released artefact. ND is
+stricter than RIGA's NC-only terms, so AIROGS is the tighter of the two.
 
 **RIGA**: DOI 10.7302/Z23R0R29. The Deep Blue page returns 403 to scripts; open it in a browser.
 `MESSIDOR.zip` needs **Globus**, not a plain download. CC BY-NC means RIGA may appear in the
