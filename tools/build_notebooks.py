@@ -177,8 +177,10 @@ import pandas as pd
 from PIL import Image
 from src import refuge
 
+INVENTORY = os.path.join(WORK, "results", "inventory.csv")
 rows = []
-for split, image_id, folder in refuge.iter_images(RELEASE):
+for split, image_id, folder in ([] if os.path.exists(INVENTORY)
+                                else refuge.iter_images(RELEASE)):
     files = set(os.listdir(folder))
     jpg = next((f for f in files if f.lower().endswith((".jpg", ".jpeg"))), None)
     width, height = Image.open(os.path.join(folder, jpg)).size if jpg else (0, 0)
@@ -190,15 +192,18 @@ for split, image_id, folder in refuge.iter_images(RELEASE):
         "n_expert_cup": sum(f"{image_id}_seg_cup_{k}.png" in files for k in range(1, 8)),
         "n_expert_disc": sum(f"{image_id}_seg_disc_{k}.png" in files for k in range(1, 8)),
     })
-inventory = pd.DataFrame(rows)
-
-# the clinical diagnosis, already resolved in analysis/r1_labels.csv: the release's own
-# REFUGE1*.csv files repeat folder ids across rows, so 5 eyes have conflicting label rows
-# and were dropped. 1,195 eyes keep a clean label; 119 of them are glaucoma.
-clinical = pd.read_csv(os.path.join(PROJECT, "analysis", "r1_labels.csv"),
-                       dtype={"folder": str}).rename(columns={"folder": "image_id"})
-inventory = inventory.merge(clinical, on=["split", "image_id"], how="left")
-inventory.to_csv(os.path.join(WORK, "results", "inventory.csv"), index=False)
+if os.path.exists(INVENTORY):          # re-runs are cheap: this takes a few minutes otherwise
+    inventory = pd.read_csv(INVENTORY, dtype={"image_id": str})
+    print("loaded the saved inventory; delete results/inventory.csv to rebuild it\\n")
+else:
+    inventory = pd.DataFrame(rows)
+    # the clinical diagnosis, already resolved in analysis/r1_labels.csv: the release's own
+    # REFUGE1*.csv files repeat folder ids across rows, so 5 eyes have conflicting label rows
+    # and were dropped. 1,195 eyes keep a clean label; 119 of them are glaucoma.
+    clinical = pd.read_csv(os.path.join(PROJECT, "analysis", "r1_labels.csv"),
+                           dtype={"folder": str}).rename(columns={"folder": "image_id"})
+    inventory = inventory.merge(clinical, on=["split", "image_id"], how="left")
+    inventory.to_csv(INVENTORY, index=False)
 
 print(f"{len(inventory)} eyes")
 print(f"with a clean clinical label: {int(inventory.label.notna().sum())}  "
@@ -301,21 +306,33 @@ cx = (official[:, 1] + official[:, 3]) / 2
 diameter = np.maximum(official[:, 2] - official[:, 0], official[:, 3] - official[:, 1])
 H, W = m.height.to_numpy(float), m.width.to_numpy(float)
 
+# The box may extend past the image border; notebook 01 pads those parts. It is NOT clamped
+# to the image: clamping collapses the box for a disc near an edge, which capped containment
+# at 1190/1200 however large the margin grew. See PREREGISTRATION.md Amendment 2.
 results = []
 for margin in np.arange(1.2, 3.01, 0.1):
-    half = np.minimum(margin * diameter / 2, np.minimum.reduce([cy, cx, H - cy, W - cx]))
+    half = margin * diameter / 2
     held = ((cy - half <= union[:, 0]) & (cx - half <= union[:, 1])
             & (cy + half >= union[:, 2]) & (cx + half >= union[:, 3]))
+    outside = np.maximum(0, -(cy - half)) + np.maximum(0, (cy + half) - H) \\
+        + np.maximum(0, -(cx - half)) + np.maximum(0, (cx + half) - W)
     results.append({"margin": round(float(margin), 2), "contained": int(held.sum()),
-                    "fraction": float(held.mean())})
+                    "fraction": float(held.mean()),
+                    "eyes_needing_padding": int((outside > 0).sum())})
 margins = pd.DataFrame(results)
 print(margins.to_string(index=False))
 
 safe = margins[margins.fraction >= 1.0]
-MARGIN = float(safe.margin.min()) if len(safe) else float(margins.margin.max())
-print(f"\\nCHOSEN MARGIN = {MARGIN}"
-      + ("  (smallest that contains every expert's disc on every eye)" if len(safe) else
-         "  *** no margin contains every eye; the shortfall is reported, not patched ***"))
+if not len(safe):
+    raise SystemExit(
+        "\\nSTOP. No margin in 1.2-3.0 contains all seven experts' discs on every eye.\\n"
+        "Do NOT pick the largest and carry on - that silently trades away disc resolution\\n"
+        "on every crop. Find out which eyes fail and why first; the earlier version of this\\n"
+        "cell fell back to 3.0 here and it took a code audit to notice.")
+MARGIN = float(safe.margin.min())
+print(f"\\nCHOSEN MARGIN = {MARGIN}  (smallest containing every expert's disc on every eye)")
+print(f"eyes needing any padding at this margin: "
+      f"{int(margins.loc[margins.margin == MARGIN, 'eyes_needing_padding'].iloc[0])}")
 
 json.dump({"margin": MARGIN, "anchor": "official-merge disc",
            "rule": "smallest margin containing the 7-expert disc union on 100% of eyes",
@@ -522,8 +539,15 @@ report = pd.DataFrame({
 })
 report["contains_union"] = (report[["slack_top", "slack_left",
                                     "slack_bottom", "slack_right"]] >= 0).all(axis=1)
+report["padding_fraction"] = [
+    crops_mod.padding_fraction((r.top, r.left, r.bottom, r.right), (r.height, r.width))
+    for r in check.itertuples()]
 report.to_csv(os.path.join(WORK, "results", "containment.csv"), index=False)
 
+padded = report[report.padding_fraction > 0]
+print(f"eyes whose box extends past the image border: {len(padded)} / {len(report)}"
+      f"  (max padding {100 * report.padding_fraction.max():.1f}% of the crop)")
+print("   that padding is black, which is what a fundus surround already is\\n")
 bad = report[~report.contains_union]
 print(f"eyes where the frozen box clips an expert's disc: {len(bad)} / {len(report)}")
 print("\\nsmallest slack in pixels (how close the box came to clipping):")
@@ -556,9 +580,9 @@ for n, (_, row) in enumerate(boxes.iterrows(), 1):
     box = (int(row.top), int(row.left), int(row.bottom), int(row.right))
 
     def cut(arr, nearest=False):
-        piece = arr[box[0]:box[2], box[1]:box[3]]
-        if nearest:
-            piece = piece.astype(np.uint8) * 255
+        # crops_mod.crop pads where the box leaves the image. Plain slicing must NOT be used:
+        # a negative index wraps around and pastes the opposite side of the retina into the crop.
+        piece = crops_mod.crop(arr.astype(np.uint8) * 255 if nearest else arr, box)
         return np.array(Image.fromarray(piece).resize(
             (CROP, CROP), Image.NEAREST if nearest else Image.BILINEAR))
 

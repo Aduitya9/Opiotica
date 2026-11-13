@@ -200,3 +200,38 @@ Consequences, adopted now rather than discovered at submission:
    that this study redistributes nothing derived from it.
 
 This removes the only claimed scheduling dependency in Week 0; nothing else in the plan moves.
+
+### Amendment 2 — 13 November 2026 — the crop box pads instead of clamping
+
+**No model had been trained when this was written. The gate in §5 is untouched.**
+
+Notebook 00 ran and its margin table plateaued: 1,190 of 1,200 eyes contained the seven
+experts' disc union at margin 1.8, and **no larger margin ever did better** — 1.9, 2.0 … 3.0
+all returned 1,190. §3's rule, *"the smallest margin containing the union on 100 % of eyes"*,
+was therefore unsatisfiable, and the cell's fallback silently selected the **largest** margin,
+3.0.
+
+**Cause** — a defect in `src/crops.py:square_box`, not a property of the data. The box was
+clamped to stay square *and* inside the image, so for a disc near a border `half` collapsed to
+the edge distance and the opposite side of the union got clipped. Confirmed on all 1,200 eyes:
+the ten failures sit a median **167 px** from the nearest border against **419 px** for the
+release as a whole, i.e. about one disc radius from the edge.
+
+**Fix** — the box may now extend past the border and `crops.crop` pads those parts with black,
+which is what a fundus surround already is. Plain slicing is explicitly forbidden there: a
+negative index wraps around and pastes the opposite side of the retina into the crop. With
+padding, containment reaches **1200/1200 at margin 1.8**.
+
+**Consequences.**
+
+1. The pre-registered rule in §3 is now satisfiable and is applied unchanged. The margin
+   becomes **1.8**, not 3.0.
+2. This is a correction, not a tuning: no model exists, no gate number exists, and the margin
+   applies identically to every label source. Choosing 3.0 would have shrunk the optic disc to
+   about a third of each 512 px crop instead of 56 %, throwing away resolution on the one
+   structure the study measures, for no gain.
+3. The fallback is gone. The cell now stops with an explanation rather than choosing for you.
+4. `tests/test_vcdr.py` gains two regression tests: an edge-adjacent disc must be contained by
+   padding and not by clipping, and `crop` must pad rather than wrap.
+5. Notebook 00 must be re-run to re-derive the margin. It now reloads the saved inventory and
+   measurements, so the re-run costs minutes, not the full pass.

@@ -122,6 +122,36 @@ def test_frozen_box_contains_every_expert_disc():
     assert crops.smallest_safe_margin(base, [base, liberal], shape) <= 2.0
 
 
+def test_edge_adjacent_disc_is_contained_by_padding_not_clipping():
+    """Regression: notebook 00's margin table plateaued at 1190/1200 because of this.
+
+    A disc about one radius from the border made the old clamped box collapse to the edge
+    distance, so no margin could hold the experts' union. Ten real REFUGE eyes hit it.
+    """
+    shape = (400, 400)
+    disc = np.zeros(shape, dtype=bool)
+    disc[150:250, 10:110] = True           # 100 px disc, centre 60 px from the left edge
+    liberal = np.zeros(shape, dtype=bool)
+    liberal[140:260, 0:130] = True         # a more generous expert, 130 px wide
+    # clamped: half collapses 90 -> 60, so the box ends at x=120 and clips the union at x=130
+
+    clamped = crops.square_box(disc, shape, margin=1.8, clamp=True)
+    padded = crops.square_box(disc, shape, margin=1.8)
+    assert not crops.union_containment(clamped, [disc, liberal])["contains_union"]
+    assert crops.union_containment(padded, [disc, liberal])["contains_union"]
+    assert padded[1] < 0, "the fixed box must be allowed to extend past the border"
+
+
+def test_crop_pads_instead_of_wrapping_around():
+    """A negative slice index would paste the far side of the retina into the crop."""
+    image = np.arange(100, dtype=np.uint8).reshape(10, 10)
+    out = crops.crop(image, (-3, -3, 5, 5))
+    assert out.shape == (8, 8)
+    assert (out[:3, :] == 0).all() and (out[:, :3] == 0).all(), "outside must be padding"
+    assert (out[3:, 3:] == image[:5, :5]).all(), "inside must be the real pixels"
+    assert crops.padding_fraction((-3, -3, 5, 5), (10, 10)) == pytest.approx(1 - 25 / 64)
+
+
 def test_majority_equals_average_at_half():
     """Why only nine sources are trained: these two rules coincide, as measured in R5."""
     stack = np.random.default_rng(0).random((7, 40, 40)) > 0.5

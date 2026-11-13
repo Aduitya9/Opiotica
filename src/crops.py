@@ -28,18 +28,29 @@ def mask_box(mask: np.ndarray) -> tuple[int, int, int, int]:
     return int(rows.min()), int(cols.min()), int(rows.max()) + 1, int(cols.max()) + 1
 
 
-def square_box(disc: np.ndarray, shape: tuple[int, int], margin: float = DEFAULT_MARGIN):
+def square_box(disc: np.ndarray, shape: tuple[int, int], margin: float = DEFAULT_MARGIN,
+               clamp: bool = False):
     """A square box centred on the disc, with side = margin x the disc's larger diameter.
 
-    Clamped to the image, and the side is kept square after clamping so that every crop has the
-    same aspect ratio before resizing.
+    The box MAY extend past the image border; `crop` pads those parts. That is deliberate.
+
+    An earlier version clamped the box to stay inside the image, which silently shrank it for
+    discs near an edge: `half` collapsed to the edge distance, so the box could no longer hold
+    the seven experts' disc union however large the margin grew. Measured on all 1,200 REFUGE
+    eyes, that capped containment at 1190 and made the pre-registered rule - "the smallest
+    margin containing the union on 100% of eyes" - unsatisfiable at any margin. The ten
+    failures all sat about one disc radius from a border (median nearest edge 167 px, against
+    419 px for the release as a whole). Padding instead reaches 1200/1200 at margin 1.8.
+
+    `clamp=True` reproduces the old behaviour, and exists only so the regression test can show
+    the difference.
     """
     top, left, bottom, right = mask_box(disc)
     cy, cx = (top + bottom) / 2.0, (left + right) / 2.0
-    side = margin * max(bottom - top, right - left)
-    half = side / 2.0
-    height, width = shape
-    half = min(half, cy, cx, height - cy, width - cx)
+    half = margin * max(bottom - top, right - left) / 2.0
+    if clamp:
+        height, width = shape
+        half = min(half, cy, cx, height - cy, width - cx)
     return (
         int(round(cy - half)),
         int(round(cx - half)),
@@ -48,10 +59,33 @@ def square_box(disc: np.ndarray, shape: tuple[int, int], margin: float = DEFAULT
     )
 
 
-def crop(image: np.ndarray, box) -> np.ndarray:
-    """Apply a box to an image or mask. Identical box -> identical pixels, for every label."""
+def crop(image: np.ndarray, box, fill: int = 0) -> np.ndarray:
+    """Apply a box to an image or mask, padding wherever the box falls outside the image.
+
+    Identical box -> identical pixels, for every label source. Plain slicing cannot be used
+    here: a negative index would wrap around to the far side of the array and silently paste
+    the wrong part of the retina into the crop.
+
+    Fundus photographs already sit on a black surround, so `fill=0` matches the image.
+    """
+    top, left, bottom, right = (int(v) for v in box)
+    height, width = image.shape[:2]
+    out = np.full((bottom - top, right - left) + image.shape[2:], fill, dtype=image.dtype)
+    y0, x0 = max(top, 0), max(left, 0)
+    y1, x1 = min(bottom, height), min(right, width)
+    if y0 < y1 and x0 < x1:
+        out[y0 - top:y1 - top, x0 - left:x1 - left] = image[y0:y1, x0:x1]
+    return out
+
+
+def padding_fraction(box, shape) -> float:
+    """How much of the box falls outside the image. Reported, never silently ignored."""
     top, left, bottom, right = box
-    return image[top:bottom, left:right]
+    height, width = shape
+    inside = (max(0, min(bottom, height) - max(top, 0))
+              * max(0, min(right, width) - max(left, 0)))
+    total = (bottom - top) * (right - left)
+    return float(1.0 - inside / total) if total else 1.0
 
 
 def contains(box, inner_box) -> bool:
