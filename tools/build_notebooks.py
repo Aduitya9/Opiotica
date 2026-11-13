@@ -46,8 +46,8 @@ SETUP = '''# --- environment ---------------------------------------------------
 #   RAW      the 1.5 GB dataset                      -> LOCAL disk: Drive I/O is slow,
 #                                                       and re-fetching costs ~3 minutes
 #   WORK     crops, weights, results                 -> Drive, so a disconnect costs nothing
-REPO_URL = ""                                    # optional: "https://github.com/<you>/<repo>.git"
-DRIVE_PROJECT = "/content/drive/MyDrive/whose-eyes"
+REPO_URL = "https://github.com/Aduitya9/Opiotica.git"   # cloned fresh each session
+DRIVE_PROJECT = "/content/drive/MyDrive/whose-eyes"     # offline fallback if REPO_URL is ""
 WORK = "/content/drive/MyDrive/whose-eyes-work"
 RAW = "/content/raw"
 
@@ -59,7 +59,7 @@ drive.mount("/content/drive")
 if REPO_URL:
     if not os.path.isdir("/content/project"):
         subprocess.run(["git", "clone", "--depth", "1", REPO_URL, "/content/project"], check=True)
-    PROJECT = "/content/project/whose-eyes"
+    PROJECT = "/content/project"
 else:
     PROJECT = DRIVE_PROJECT
 assert os.path.isdir(os.path.join(PROJECT, "src")), (
@@ -88,6 +88,28 @@ print(f"project : {PROJECT}")
 print(f"work    : {WORK}   (Drive - survives a disconnect)")
 print(f"raw     : {RAW}   (local - re-fetched each session)")
 print(f"gpu     : {GPU}  {VRAM:.0f} GB  ->  batch size {BATCH}")
+'''
+
+HF_SETUP = '''# --- Hugging Face: the archival copy ------------------------------------------
+# The token comes from Colab Secrets (key icon in the left sidebar) under the name HF_TOKEN.
+# It is never written into a cell, a file, or this repository.
+!pip -q install -U huggingface_hub
+
+from huggingface_hub import HfApi
+
+HF_REPO = "Aduitya9/opiotica-whose-eyes"          # PRIVATE: it holds REFUGE-derived pixels
+try:
+    from google.colab import userdata
+    HF_TOKEN = userdata.get("HF_TOKEN")
+except Exception as error:
+    HF_TOKEN = None
+    print("No HF_TOKEN in Colab Secrets:", error)
+
+PUSH_TO_HF = HF_TOKEN is not None
+hf = HfApi(token=HF_TOKEN) if PUSH_TO_HF else None
+print("upload enabled" if PUSH_TO_HF else
+      "upload DISABLED - add HF_TOKEN under Secrets to archive this run; "
+      "everything still works locally and in Drive")
 '''
 
 GPU_GUARD = '''# --- every compared run must sit on the SAME card ---------------------------
@@ -580,6 +602,39 @@ assert liberal != conservative, (
     "point means anything.")
 print("\\nOK: one image, different outlines. That difference is the whole experiment.")
 '''),
+    ("code", HF_SETUP),
+    ("code", '''# --- archive the frozen crops and the decisions that produced them -----------
+# Why upload at all: the crops are the one expensive artefact (~45 min to rebuild) and they
+# are what makes every later run comparable. Why PRIVATE: they contain REFUGE pixels.
+if PUSH_TO_HF:
+    for name in ("boxes.csv", "boxes.sha256.json", "manifest.csv"):
+        hf.upload_file(path_or_fileobj=os.path.join(WORK, "crops", name),
+                       path_in_repo=f"crops/{name}", repo_id=HF_REPO, repo_type="dataset",
+                       commit_message=f"Frozen crop metadata: {name}")
+    for name in ("inventory.csv", "png_measurements.csv", "crop_margin.json",
+                 "containment.csv", "zeiss_train80_val20.json"):
+        path = os.path.join(WORK, "results", name)
+        if os.path.exists(path):
+            hf.upload_file(path_or_fileobj=path, path_in_repo=f"results/{name}",
+                           repo_id=HF_REPO, repo_type="dataset",
+                           commit_message=f"Notebook 00/01 output: {name}")
+    print("metadata uploaded\\n")
+
+    # the crops themselves: ~1,200 files, a few hundred MB. Slow; skip if you are short of time
+    # and simply re-run this notebook later - nothing downstream needs them to be on the Hub.
+    UPLOAD_CROPS = True
+    if UPLOAD_CROPS:
+        upload = getattr(hf, "upload_large_folder", None)
+        if upload:
+            upload(folder_path=os.path.join(WORK, "crops"), repo_id=HF_REPO,
+                   repo_type="dataset", allow_patterns=["*.npz"])
+        else:
+            hf.upload_folder(folder_path=os.path.join(WORK, "crops"), path_in_repo="crops",
+                             repo_id=HF_REPO, repo_type="dataset", allow_patterns=["*.npz"],
+                             commit_message="Frozen crops: image + 18 masks per eye")
+        print("crops uploaded")
+    print(f"\\nhttps://huggingface.co/datasets/{HF_REPO}")
+'''),
     ("markdown", """## Done
 
 `whose-eyes-work/crops/` now holds one `.npz` per eye: the image once, and eighteen masks —
@@ -724,6 +779,26 @@ print(f"  hardware                   {card}")
 print("=" * 74)
 print(f"  {verdict['verdict']}")
 print("=" * 74)
+'''),
+    ("code", HF_SETUP),
+    ("code", '''# --- archive the gate --------------------------------------------------------
+# The verdict and the per-run numbers are small and belong with the paper. The checkpoints are
+# ~70 MB each; they are uploaded so a reviewer can reproduce a prediction without retraining.
+if PUSH_TO_HF:
+    for name in ("gate.json", "gate_runs.csv"):
+        hf.upload_file(path_or_fileobj=os.path.join(WORK, "results", name),
+                       path_in_repo=f"results/{name}", repo_id=HF_REPO, repo_type="dataset",
+                       commit_message=f"Gate output: {name}")
+    print("verdict uploaded")
+
+    UPLOAD_WEIGHTS = True          # ~11 x 70 MB for the gate's runs
+    if UPLOAD_WEIGHTS:
+        hf.upload_folder(folder_path=os.path.join(WORK, "runs"), path_in_repo="runs",
+                         repo_id=HF_REPO, repo_type="dataset",
+                         allow_patterns=["*/best.pt", "*/history.json", "*/eval_vcdr.npy"],
+                         commit_message=f"Gate runs on {card}: weights, history, eval vCDR")
+        print("checkpoints uploaded")
+    print(f"\\nhttps://huggingface.co/datasets/{HF_REPO}")
 '''),
     ("markdown", """## Whichever way it went
 
