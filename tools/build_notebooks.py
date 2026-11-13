@@ -568,8 +568,30 @@ split_pad["percent"] = (100 * split_pad["sum"] / split_pad["count"]).round(1)
 print("padding by split - expect roughly 33% on Zeiss against 2-4% on Canon:")
 print(split_pad.to_string())
 print()
+# How far is the frozen localiser from the official-merge disc it was trained on? The box has
+# a median 96 px of slack at margin 1.8, so a few pixels are harmless - but the localiser
+# trains on Zeiss and is applied to Canon, so any generalisation failure shows up HERE, as
+# centre error concentrated on one camera, before it can quietly cost evaluation eyes.
+official = np.array([[int(v) for v in s.split(",")] for s in check.box_official])
+err = pd.DataFrame({
+    "split": check.split.to_numpy(),          # png_measurements already carries the split
+    "centre_dy": (official[:, 0] + official[:, 2]) / 2
+                 - (check.top.to_numpy() + check.bottom.to_numpy()) / 2,
+    "centre_dx": (official[:, 1] + official[:, 3]) / 2
+                 - (check.left.to_numpy() + check.right.to_numpy()) / 2,
+})
+err["centre_error_px"] = np.hypot(err.centre_dy, err.centre_dx)
+print("localiser box centre error vs the official-merge disc, by split (px):")
+print(err.groupby("split").centre_error_px.describe()[["mean", "50%", "max"]].round(1).to_string())
+print("   a camera-specific jump here means the localiser did not generalise Zeiss -> Canon\\n")
+
 bad = report[~report.contains_union]
 print(f"eyes where the frozen box clips an expert's disc: {len(bad)} / {len(report)}")
+if len(bad):
+    print("   by split - failures concentrated on Canon would be a localiser problem, "
+          "not a margin problem:")
+    print("   " + bad.merge(inventory[["image_id", "split"]], on="image_id")
+          .groupby("split").size().to_string().replace("\\n", "\\n   "))
 print("\\nsmallest slack in pixels (how close the box came to clipping):")
 print(report[["slack_top", "slack_left", "slack_bottom", "slack_right"]].min().to_string())
 if len(bad):
