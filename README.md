@@ -45,7 +45,10 @@ individual expert. The real exposure is *cross-dataset* conventions and single-e
 ```
 PREREGISTRATION.md     the gate, the outcomes, the limitations - written first
 docs/week0.md          the day-by-day plan
-docs/datasets.md       every dataset and model, with licences and access state
+docs/datasets.md       every dataset: licence, access state, and where it is stored
+docs/models.md         every model: the question it answers, and what it costs
+docs/storage.md        why pixels are private and measurements are public
+docs/colab.md          the Colab links, runtimes, and the same-GPU rule
 src/refuge.py          verified readers: palette BMPs, per-expert PNGs, ellipse sheets
 src/vcdr.py            vCDR, offsets, referral rates, ICC, cluster bootstrap, the gate
 src/crops.py           the frozen box and its containment proof

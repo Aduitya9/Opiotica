@@ -213,7 +213,8 @@ That is the skeleton of the paper's Methods, written before any results exist to
 
 * **No account is created for you by an agent.** Hugging Face, Zenodo, OSF, Globus — yours.
 * **Tokens live in Colab Secrets**, never in a notebook cell, a commit, or a chat message.
-* **Raw CPCB-style restricted files and RIGA-derived artefacts never reach a public repo.**
+* **Nothing containing image pixels reaches a public repo**, and nothing RIGA- or
+  AIROGS-derived reaches a released artefact. See [storage.md](storage.md).
 * `torch.load(..., weights_only=True)` everywhere. It is already in `src/train.py`.
 * Every reported number carries its **seed SD** beside it.
 * Anything changed after 13 November 2026 is a **dated amendment**, never an edit.
