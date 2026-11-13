@@ -70,24 +70,50 @@ for sub in ("crops", "runs", "results"):
     os.makedirs(os.path.join(WORK, sub), exist_ok=True)
 os.makedirs(RAW, exist_ok=True)
 
-# --- GPU ---------------------------------------------------------------------
-# Batch size is set from the card, not guessed: U-Net + EfficientNet-B4 at 512 px with AMP
-# needs roughly 1.5 GB per sample. Everything else in the schedule stays fixed.
-import torch
-
-if torch.cuda.is_available():
-    GPU = torch.cuda.get_device_name(0)
-    VRAM = torch.cuda.get_device_properties(0).total_memory / 1e9
-    BATCH = 24 if VRAM > 60 else 16 if VRAM > 35 else 8 if VRAM > 20 else 4
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
-else:
-    GPU, VRAM, BATCH = "cpu", 0.0, 2
-
 print(f"project : {PROJECT}")
-print(f"work    : {WORK}   (Drive - survives a disconnect)")
-print(f"raw     : {RAW}   (local - re-fetched each session)")
-print(f"gpu     : {GPU}  {VRAM:.0f} GB  ->  batch size {BATCH}")
+print(f"work    : {WORK}   (Drive - persists between sessions)")
+print(f"raw     : {RAW}   (LOCAL - wiped with this VM, re-fetched on demand)")
+'''
+
+# Each GPU notebook checks everything it needs before doing any slow work. The alternative
+# cost a real failure: notebook 01 assumed notebook 00's /content was still there and died
+# ten lines in with "IndexError: list index out of range".
+PREFLIGHT_01 = '''# --- preflight: prove this session can finish, before spending L4 time --------
+from src import colab
+
+GPU, VRAM = colab.require_gpu()
+BATCH = colab.batch_size_for(VRAM)
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+
+colab.require({
+    os.path.join(WORK, "results", "inventory.csv"): "notebook 00",
+    os.path.join(WORK, "results", "png_measurements.csv"): "notebook 00",
+    os.path.join(WORK, "results", "crop_margin.json"): "notebook 00",
+})
+RELEASE = colab.ensure_release(RAW)          # fetches it if this VM does not have it
+MARGIN = json.load(open(os.path.join(WORK, "results", "crop_margin.json")))["margin"]
+
+inventory = pd.read_csv(os.path.join(WORK, "results", "inventory.csv"), dtype={"image_id": str})
+png = pd.read_csv(os.path.join(WORK, "results", "png_measurements.csv"), dtype={"image_id": str})
+folder_of = {i: f for _, i, f in refuge.iter_images(RELEASE)}
+
+print(f"\\nready: {GPU} {VRAM:.0f} GB, batch {BATCH}, {len(inventory)} eyes, margin {MARGIN}")
+'''
+
+PREFLIGHT_02 = '''# --- preflight: prove this session can finish, before spending hours ----------
+from src import colab
+
+GPU, VRAM = colab.require_gpu()
+BATCH = colab.batch_size_for(VRAM)
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+
+colab.require({
+    os.path.join(WORK, "crops", "manifest.csv"): "notebook 01",
+    os.path.join(WORK, "results", "containment.csv"): "notebook 01",
+})
+print(f"\\nready: {GPU} {VRAM:.0f} GB, batch {BATCH}")
 '''
 
 HF_SETUP = '''# --- Hugging Face: the archival copy ------------------------------------------
@@ -150,26 +176,9 @@ About 20 minutes, most of it the one-pass mask scan, which checkpoints as it goe
 # The repo holds ONE 1.5 GB zip, not an unpacked tree, so it is fetched and extracted.
 !pip -q install huggingface_hub
 
-from huggingface_hub import hf_hub_download
-import glob, zipfile
+from src import colab
 
-RELEASE_GLOB = os.path.join(RAW, "**", "Training-400")
-if not glob.glob(RELEASE_GLOB, recursive=True):
-    zip_path = hf_hub_download(
-        repo_id="realslimman/REFUGE-MultiRater",
-        filename="REFUGE-Multirater.zip",
-        repo_type="dataset",
-        local_dir="/content/hf",
-    )
-    print(f"downloaded {os.path.getsize(zip_path) / 1e9:.2f} GB; extracting...")
-    with zipfile.ZipFile(zip_path) as z:
-        z.extractall(RAW)
-    print("extracted")
-else:
-    print("already extracted this session")
-
-RELEASE = sorted({os.path.dirname(p) for p in glob.glob(RELEASE_GLOB, recursive=True)})[0]
-print("release root:", RELEASE)
+RELEASE = colab.ensure_release(RAW)
 print(sorted(os.listdir(RELEASE)))
 '''),
     ("code", '''# --- inventory: resolution and file completeness, one row per eye ------------
@@ -384,21 +393,14 @@ About 30–45 minutes. It resumes if Colab drops you.
     ("code", SETUP),
     ("code", '''!pip -q install "segmentation-models-pytorch==0.4.0" "timm>=1.0.9" || pip -q install segmentation-models-pytorch
 
-import glob, hashlib, time
-import numpy as np, pandas as pd
+import hashlib, time
+import numpy as np, pandas as pd, torch
 from PIL import Image
 import segmentation_models_pytorch as smp
 
 from src import refuge, crops as crops_mod, labels as labels_mod, train as train_mod
-
-RELEASE = sorted({os.path.dirname(p) for p in
-                  glob.glob(os.path.join(RAW, "**", "Training-400"), recursive=True)})[0]
-inventory = pd.read_csv(os.path.join(WORK, "results", "inventory.csv"), dtype={"image_id": str})
-png = pd.read_csv(os.path.join(WORK, "results", "png_measurements.csv"), dtype={"image_id": str})
-MARGIN = json.load(open(os.path.join(WORK, "results", "crop_margin.json")))["margin"]
-folder_of = {i: f for _, i, f in refuge.iter_images(RELEASE)}
-print(f"{len(inventory)} eyes | frozen margin {MARGIN} | batch {BATCH} on {GPU}")
 '''),
+    ("code", PREFLIGHT_01),
     ("code", '''# --- the fixed split, drawn once and saved -----------------------------------
 # 320 Zeiss eyes to train on, 80 held back for early stopping, 800 Canon eyes to evaluate on.
 # Byte-identical for every label source, for the whole study.
@@ -744,11 +746,12 @@ disconnect costs one run at most.
     ("code", '''!pip -q install "segmentation-models-pytorch==0.4.0" "timm>=1.0.9" || pip -q install segmentation-models-pytorch
 
 import time
-import numpy as np, pandas as pd
+import numpy as np, pandas as pd, torch
 from dataclasses import replace
 from src import train as train_mod, vcdr, labels as labels_mod
-
-CFG = replace(train_mod.CONFIG, batch_size=BATCH)
+'''),
+    ("code", PREFLIGHT_02),
+    ("code", '''CFG = replace(train_mod.CONFIG, batch_size=BATCH)
 
 manifest = pd.read_csv(os.path.join(WORK, "crops", "manifest.csv"), dtype={"image_id": str})
 train_rows = manifest[manifest.part == "train"]

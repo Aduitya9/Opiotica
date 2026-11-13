@@ -11,6 +11,24 @@ version and there is no stale copy to keep in step.
 
 Run them **in order** — each reads what the previous one wrote.
 
+## Every notebook checks itself before doing slow work
+
+Each notebook runs in **its own virtual machine**. `/content` is wiped between them; only
+Drive and the Hub survive. That caught us once: notebook 01 assumed notebook 00's
+`/content/raw` was still there and died with `IndexError: list index out of range` ten lines
+in, after pip had already spent two minutes building wheels.
+
+So notebooks 01 and 02 now open with a **preflight cell** that, before anything slow:
+
+* stops if the runtime has no GPU, naming the menu path, rather than failing at the first
+  `.cuda()` call twenty minutes later
+* checks every file it needs and, for each missing one, says **which notebook produces it**
+* fetches and extracts the release itself if this VM does not have it (about 4 minutes)
+
+If a preflight raises, nothing has been wasted and the message says what to do.
+`tests/test_notebooks.py` enforces all of this statically, so a notebook that reintroduces the
+problem fails the test suite before it reaches Colab.
+
 A GitHub-opened notebook is read-only. Colab will offer **File → Save a copy in Drive** the
 moment you edit or run it; take the offer, and your outputs are saved in your own copy while
 the link above keeps serving the canonical version.
