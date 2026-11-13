@@ -66,6 +66,22 @@ python -m pytest tests -q
 
 Then `docs/week0.md`, day 1.
 
+## Licence, and what it does and does not cover
+
+The `LICENSE` file is **CC0 1.0**, and it applies to **the code and documentation in this
+repository only** — `src/`, `tools/`, `tests/`, `notebooks/`, `docs/`, `PREREGISTRATION.md`.
+
+It does **not** apply to the files in `analysis/`. Those are derived from third-party datasets
+whose terms travel with them and cannot be waived by a downstream author:
+
+* `chaksu_decisions.csv` derives from **Chákṣu, CC BY 4.0** — reuse requires attribution.
+  The citation is in [analysis/README.md](analysis/README.md).
+* `r1_labels.csv`, `r5_fusion_vcdr.csv`, `r6_official_merge.csv` derive from **REFUGE /
+  REFUGE-MultiRater** and are used under the REFUGE challenge's own terms.
+
+No image pixels are published in this repository at all. Crops and model weights live in a
+private Hugging Face repo; [docs/storage.md](docs/storage.md) explains the split.
+
 ## Honesty notes
 
 * Camera, split and patient set are the **same variable** in REFUGE — no eye appears on both
