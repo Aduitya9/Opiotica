@@ -100,3 +100,53 @@ def require_gpu(minimum_gb: float = 14.0) -> tuple[str, float]:
 def batch_size_for(vram_gb: float) -> int:
     """U-Net + EfficientNet-B4 at 512 px with AMP needs roughly 1.5 GB per sample."""
     return 24 if vram_gb > 60 else 16 if vram_gb > 35 else 8 if vram_gb > 20 else 4
+
+
+def archive_crops(work_dir: str, out_path: str = "/content/crops.tar") -> tuple[str, int, int]:
+    """Pack the per-eye .npz crops into ONE tar, written to local disk.
+
+    The archive copy exists for reproducibility, not for training - notebook 02 reads the
+    individual .npz files from Drive. So it goes to the Hub as a single file rather than
+    1,200 small ones. That matters for more than tidiness:
+
+    * 1,200 separate LFS uploads take far longer and fail *partially*, leaving a repo that
+      looks populated but is not. A single file either lands or does not.
+    * `upload_large_folder` has no `path_in_repo` parameter, so on any version that provides
+      it the files land at the repo ROOT instead of under `crops/`, quietly invalidating
+      every path in `manifest.csv`. One file with an explicit path cannot drift.
+
+    Returns (tar path, number of crops packed, bytes).
+    """
+    import tarfile
+
+    crops_dir = os.path.join(work_dir, "crops")
+    names = sorted(f for f in os.listdir(crops_dir) if f.endswith(".npz"))
+    if not names:
+        raise FileNotFoundError(f"no .npz crops in {crops_dir} - run notebook 01's export first")
+    with tarfile.open(out_path, "w") as tar:
+        for i, name in enumerate(names, 1):
+            tar.add(os.path.join(crops_dir, name), arcname=name)
+            if i % 300 == 0:
+                print(f"   packed {i}/{len(names)}")
+    size = os.path.getsize(out_path)
+    print(f"packed {len(names)} crops into {out_path} ({size / 1e6:.0f} MB)")
+    return out_path, len(names), size
+
+
+def verify_upload(api, repo_id: str, expected: dict[str, int]) -> None:
+    """Confirm the Hub actually holds what we just sent, with the sizes we sent.
+
+    An upload that half-succeeds is worse than one that fails: the repo looks populated.
+    `expected` maps a path in the repo to its byte size.
+    """
+    info = api.dataset_info(repo_id, files_metadata=True)
+    actual = {s.rfilename: s.size for s in info.siblings}
+    problems = []
+    for path, size in expected.items():
+        if path not in actual:
+            problems.append(f"    {path} is missing from the repo")
+        elif actual[path] is not None and size and actual[path] != size:
+            problems.append(f"    {path} is {actual[path]} bytes on the Hub, {size} locally")
+    if problems:
+        raise RuntimeError("upload did not complete:\n" + "\n".join(problems))
+    print(f"verified on the Hub: {', '.join(sorted(expected))}")

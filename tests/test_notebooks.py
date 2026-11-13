@@ -49,6 +49,17 @@ def load(name: str) -> list[str]:
     return cells
 
 
+def code_without_comments(text: str) -> str:
+    """Drop comments so a check cannot match the prose explaining why something is avoided."""
+    lines = []
+    for line in text.split("\n"):
+        if line.lstrip().startswith("#"):
+            lines.append("")
+            continue
+        lines.append(re.sub(r"\s+#.*$", "", line))
+    return "\n".join(lines)
+
+
 def bound_by(node: ast.AST) -> set[str]:
     """Every name this statement binds, including tuple targets and `as` clauses."""
     names: set[str] = set()
@@ -156,6 +167,14 @@ def test_the_checker_is_not_vacuous():
     assert not undefined_names(quiet), "the checker fires on legitimate Python"
 
 
+def test_comment_stripping_does_not_hide_real_calls():
+    """The upload check strips comments; prove it still sees the code underneath."""
+    assert "upload_large_folder" not in code_without_comments(
+        "# upload_large_folder does not take path_in_repo, so it is not used\nx = 1")
+    assert "upload_large_folder" in code_without_comments(
+        "hf.upload_large_folder(folder_path=p)  # the mistake")
+
+
 @pytest.mark.parametrize("name", NAMES[1:])          # the GPU notebooks
 def test_gpu_notebooks_preflight_their_prerequisites(name):
     """A notebook may not assume another notebook's VM. It declares what it needs, up front."""
@@ -180,6 +199,39 @@ def test_notebook_01_fetches_the_release_itself():
     assert "glob.glob(os.path.join(RAW" not in joined, (
         "globbing RAW directly is what failed: an empty folder gives IndexError instead of "
         "a message saying the release needs fetching")
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_no_notebook_force_upgrades_a_colab_package(name):
+    """`pip install -U` on a preinstalled package breaks Colab's own pins.
+
+    Seen for real: `-U huggingface_hub` pulled 2.4.0 and broke `datasets`, which pins
+    huggingface-hub<2.0. Nothing needed the newer version.
+    """
+    with open(os.path.join(NOTEBOOKS, name), encoding="utf-8") as fh:
+        source = "".join("".join(c["source"]) for c in json.load(fh)["cells"])
+    for line in source.split("\n"):
+        if re.match(r"\s*!pip", line):
+            assert not re.search(r"(?<!-)\B-U\b|--upgrade", line), (
+                f"{name} force-upgrades a package:\n    {line.strip()}\n"
+                "Pin it or leave Colab's version alone.")
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_every_folder_upload_states_where_it_lands(name):
+    """`upload_large_folder` has no path_in_repo, so its files land at the repo root.
+
+    That would silently invalidate every path in manifest.csv. Folder uploads must use
+    `upload_folder` with an explicit `path_in_repo`.
+    """
+    # Comments are stripped first: this file explains WHY upload_large_folder is avoided,
+    # and a checker that cannot tell an explanation from a call is a checker that cries wolf.
+    joined = code_without_comments("\n".join(load(name)))
+    assert "upload_large_folder" not in joined, (
+        f"{name} uses upload_large_folder, which cannot place files under a prefix")
+    for call in re.finditer(r"upload_folder\((.*?)\)\n", joined, re.S):
+        assert "path_in_repo" in call.group(1), (
+            f"{name} calls upload_folder without path_in_repo")
 
 
 def test_notebooks_are_generated_from_the_builder():

@@ -119,7 +119,12 @@ print(f"\\nready: {GPU} {VRAM:.0f} GB, batch {BATCH}")
 HF_SETUP = '''# --- Hugging Face: the archival copy ------------------------------------------
 # The token comes from Colab Secrets (key icon in the left sidebar) under the name HF_TOKEN.
 # It is never written into a cell, a file, or this repository.
-!pip -q install -U huggingface_hub
+#
+# NOT `-U`. Colab ships a huggingface_hub that already does everything used here, and
+# force-upgrading it breaks the preinstalled `datasets`, which pins huggingface-hub<2.0:
+#     datasets 4.8.5 requires huggingface-hub<2.0,>=0.25.0, but you have 2.4.0
+# Nothing needed the newer version, so nothing should have asked for it.
+!pip -q install huggingface_hub
 
 from huggingface_hub import HfApi
 
@@ -497,40 +502,51 @@ for p in localiser.parameters():
 print("\\nFROZEN. This model is never trained again in this project.")
 '''),
     ("code", '''# --- one box per eye, from the frozen localiser ------------------------------
-all_ids = inventory.image_id.tolist()
-rows, failures = [], []
-
-with torch.no_grad():
-    for n, image_id in enumerate(all_ids, 1):
-        folder = folder_of[image_id]
-        jpg = next(f for f in os.listdir(folder) if f.lower().endswith((".jpg", ".jpeg")))
-        full = Image.open(os.path.join(folder, jpg)).convert("RGB")
-        W_full, H_full = full.size
-        x = torch.from_numpy(np.asarray(full.resize((LOC_SIZE, LOC_SIZE)), dtype=np.float32)
-                             .transpose(2, 0, 1)[None] / 255.0).cuda()
-        with torch.amp.autocast("cuda"):
-            pred = torch.sigmoid(localiser(x))[0, 0].float().cpu().numpy() > 0.5
-        if not pred.any():
-            failures.append({"image_id": image_id, "reason": "localiser found no disc"})
-            continue
-        top, left, bottom, right = crops_mod.mask_box(pred)
-        sy, sx = H_full / LOC_SIZE, W_full / LOC_SIZE
-        disc_full = np.zeros((H_full, W_full), dtype=bool)
-        disc_full[int(top * sy):int(bottom * sy), int(left * sx):int(right * sx)] = True
-        box = crops_mod.square_box(disc_full, (H_full, W_full), margin=MARGIN)
-        rows.append({"image_id": image_id, "height": H_full, "width": W_full,
-                     "top": box[0], "left": box[1], "bottom": box[2], "right": box[3]})
-        if n % 200 == 0:
-            print(f"  {n}/{len(all_ids)}")
-
-boxes = pd.DataFrame(rows)
 BOX_FILE = os.path.join(WORK, "crops", "boxes.csv")
-boxes.to_csv(BOX_FILE, index=False)
-digest = hashlib.sha256(open(BOX_FILE, "rb").read()).hexdigest()
-json.dump({"sha256": digest, "margin": MARGIN, "n": len(boxes), "gpu": GPU,
-           "failures": failures},
-          open(os.path.join(WORK, "crops", "boxes.sha256.json"), "w"), indent=2)
-print(f"\\n{len(boxes)} boxes frozen.  sha256 {digest[:16]}...")
+SHA_FILE = os.path.join(WORK, "crops", "boxes.sha256.json")
+
+# Frozen means frozen. If the boxes exist they are REUSED, never recomputed: AMP inference is
+# not bit-exact, so a second pass could move a box by a pixel and change the sha256 of a file
+# whose whole purpose is to be fixed. Delete boxes.csv to rebuild deliberately.
+if os.path.exists(BOX_FILE):
+    boxes = pd.read_csv(BOX_FILE, dtype={"image_id": str})
+    meta = json.load(open(SHA_FILE))
+    failures = meta.get("failures", [])
+    print(f"reusing {len(boxes)} frozen boxes   sha256 {meta['sha256'][:16]}...   "
+          f"margin {meta['margin']}   (delete boxes.csv to rebuild)")
+else:
+    rows, failures = [], []
+    all_ids = inventory.image_id.tolist()
+    with torch.no_grad():
+        for n, image_id in enumerate(all_ids, 1):
+            folder = folder_of[image_id]
+            jpg = next(f for f in os.listdir(folder) if f.lower().endswith((".jpg", ".jpeg")))
+            full = Image.open(os.path.join(folder, jpg)).convert("RGB")
+            W_full, H_full = full.size
+            x = torch.from_numpy(np.asarray(full.resize((LOC_SIZE, LOC_SIZE)), dtype=np.float32)
+                                 .transpose(2, 0, 1)[None] / 255.0).cuda()
+            with torch.amp.autocast("cuda"):
+                pred = torch.sigmoid(localiser(x))[0, 0].float().cpu().numpy() > 0.5
+            if not pred.any():
+                failures.append({"image_id": image_id, "reason": "localiser found no disc"})
+                continue
+            top, left, bottom, right = crops_mod.mask_box(pred)
+            sy, sx = H_full / LOC_SIZE, W_full / LOC_SIZE
+            disc_full = np.zeros((H_full, W_full), dtype=bool)
+            disc_full[int(top * sy):int(bottom * sy), int(left * sx):int(right * sx)] = True
+            box = crops_mod.square_box(disc_full, (H_full, W_full), margin=MARGIN)
+            rows.append({"image_id": image_id, "height": H_full, "width": W_full,
+                         "top": box[0], "left": box[1], "bottom": box[2], "right": box[3]})
+            if n % 200 == 0:
+                print(f"  {n}/{len(all_ids)}")
+
+    boxes = pd.DataFrame(rows)
+    boxes.to_csv(BOX_FILE, index=False)
+    digest = hashlib.sha256(open(BOX_FILE, "rb").read()).hexdigest()
+    json.dump({"sha256": digest, "margin": MARGIN, "n": len(boxes), "gpu": GPU,
+               "failures": failures}, open(SHA_FILE, "w"), indent=2)
+    print(f"\\n{len(boxes)} boxes frozen.  sha256 {digest[:16]}...")
+
 print("failures:", failures if failures else "none")
 '''),
     ("code", '''# --- PROVE the box holds every expert's disc ---------------------------------
@@ -688,19 +704,18 @@ if PUSH_TO_HF:
                            commit_message=f"Notebook 00/01 output: {name}")
     print("metadata uploaded\\n")
 
-    # the crops themselves: ~1,200 files, a few hundred MB. Slow; skip if you are short of time
-    # and simply re-run this notebook later - nothing downstream needs them to be on the Hub.
+    # The crops go up as ONE tar, not 1,200 files. A partial upload of 1,200 small LFS files
+    # leaves a repo that looks populated but is not; a single file either lands or does not.
+    # Nothing downstream needs this - notebook 02 reads the .npz files from Drive - so set
+    # UPLOAD_CROPS = False if you would rather not wait.
     UPLOAD_CROPS = True
     if UPLOAD_CROPS:
-        upload = getattr(hf, "upload_large_folder", None)
-        if upload:
-            upload(folder_path=os.path.join(WORK, "crops"), repo_id=HF_REPO,
-                   repo_type="dataset", allow_patterns=["*.npz"])
-        else:
-            hf.upload_folder(folder_path=os.path.join(WORK, "crops"), path_in_repo="crops",
-                             repo_id=HF_REPO, repo_type="dataset", allow_patterns=["*.npz"],
-                             commit_message="Frozen crops: image + 18 masks per eye")
-        print("crops uploaded")
+        tar_path, n_crops, n_bytes = colab.archive_crops(WORK)
+        hf.upload_file(path_or_fileobj=tar_path, path_in_repo="crops/crops.tar",
+                       repo_id=HF_REPO, repo_type="dataset",
+                       commit_message=f"Frozen crops: {n_crops} eyes, image + 18 masks each")
+        colab.verify_upload(hf, HF_REPO, {"crops/crops.tar": n_bytes})
+        print("   restore with: tar -xf crops.tar -C <your crops folder>")
     print(f"\\nhttps://huggingface.co/datasets/{HF_REPO}")
 '''),
     ("markdown", """## Done
@@ -879,11 +894,18 @@ if PUSH_TO_HF:
 
     UPLOAD_WEIGHTS = True          # ~11 x 70 MB for the gate's runs
     if UPLOAD_WEIGHTS:
+        # path_in_repo is mandatory here: without it the files land at the repo root and
+        # nothing can find them again. upload_large_folder does not take it, so it is not used.
         hf.upload_folder(folder_path=os.path.join(WORK, "runs"), path_in_repo="runs",
                          repo_id=HF_REPO, repo_type="dataset",
                          allow_patterns=["*/best.pt", "*/history.json", "*/eval_vcdr.npy"],
                          commit_message=f"Gate runs on {card}: weights, history, eval vCDR")
-        print("checkpoints uploaded")
+        landed = {s.rfilename for s in hf.dataset_info(HF_REPO).siblings}
+        sent = sorted(t for t in runs.label_source + "_seed" + runs.seed.astype(str))
+        missing = [t for t in sent if f"runs/{t}/best.pt" not in landed]
+        print(f"checkpoints on the Hub: {len(sent) - len(missing)} / {len(sent)}")
+        if missing:
+            print("   MISSING, re-run this cell:", missing)
     print(f"\\nhttps://huggingface.co/datasets/{HF_REPO}")
 '''),
     ("markdown", """## Whichever way it went
