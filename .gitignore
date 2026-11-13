@@ -1,0 +1,24 @@
+# Credentials: never commit. Tokens belong in Colab Secrets.
+*token*.txt
+*Tokens*.txt
+.env
+*.pem
+
+# Data that contains image pixels, and model weights: these live in the PRIVATE
+# Hugging Face dataset repo, not here. See docs/storage.md.
+crops/
+runs/
+*.npz
+*.pt
+*.pth
+*.onnx
+*.zip
+
+# Colab/Drive working tree
+whose-eyes-work/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
