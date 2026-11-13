@@ -505,10 +505,19 @@ print("\\nFROZEN. This model is never trained again in this project.")
 BOX_FILE = os.path.join(WORK, "crops", "boxes.csv")
 SHA_FILE = os.path.join(WORK, "crops", "boxes.sha256.json")
 
-# Frozen means frozen. If the boxes exist they are REUSED, never recomputed: AMP inference is
-# not bit-exact, so a second pass could move a box by a pixel and change the sha256 of a file
-# whose whole purpose is to be fixed. Delete boxes.csv to rebuild deliberately.
-if os.path.exists(BOX_FILE):
+# Bumped whenever the way a box is derived changes. Boxes written under an older rule are
+# rebuilt automatically - "frozen" must never mean "keep the ones with the known bug in them".
+#   v1  bounding box of every predicted pixel  (a stray pixel ballooned 68 Canon boxes)
+#   v2  largest connected component first
+BOX_RULE = "v2-largest-component"
+
+# Frozen means frozen: boxes built under the CURRENT rule are reused, never recomputed. AMP
+# inference is not bit-exact, so a second pass could move a box by a pixel and change the
+# sha256 of a file whose whole purpose is to be fixed.
+stale = os.path.exists(SHA_FILE) and json.load(open(SHA_FILE)).get("box_rule") != BOX_RULE
+if stale:
+    print(f"boxes were built under an older rule - rebuilding under {BOX_RULE}\\n")
+if os.path.exists(BOX_FILE) and not stale:
     boxes = pd.read_csv(BOX_FILE, dtype={"image_id": str})
     meta = json.load(open(SHA_FILE))
     failures = meta.get("failures", [])
@@ -530,6 +539,9 @@ else:
             if not pred.any():
                 failures.append({"image_id": image_id, "reason": "localiser found no disc"})
                 continue
+            # The disc is ONE blob. Without this, a stray false-positive pixel in a corner
+            # balloons the bounding box: it put 68 Canon eyes in boxes up to 5.3x too large.
+            pred = crops_mod.largest_component(pred)
             top, left, bottom, right = crops_mod.mask_box(pred)
             sy, sx = H_full / LOC_SIZE, W_full / LOC_SIZE
             disc_full = np.zeros((H_full, W_full), dtype=bool)
@@ -544,7 +556,7 @@ else:
     boxes.to_csv(BOX_FILE, index=False)
     digest = hashlib.sha256(open(BOX_FILE, "rb").read()).hexdigest()
     json.dump({"sha256": digest, "margin": MARGIN, "n": len(boxes), "gpu": GPU,
-               "failures": failures}, open(SHA_FILE, "w"), indent=2)
+               "box_rule": BOX_RULE, "failures": failures}, open(SHA_FILE, "w"), indent=2)
     print(f"\\n{len(boxes)} boxes frozen.  sha256 {digest[:16]}...")
 
 print("failures:", failures if failures else "none")
@@ -603,8 +615,26 @@ print("localiser box centre error vs the official-merge disc, by split (px):")
 print(err.groupby("split").centre_error_px.describe()[["mean", "50%", "max"]].round(1).to_string())
 print("   a camera-specific jump here means the localiser did not generalise Zeiss -> Canon\\n")
 
+# Containment only catches boxes that are too SMALL or mis-centred away from the disc. A box
+# five times too large contains everything and passes - while shrinking the disc to a fifth of
+# its proper scale. That happened for real, so the opposite direction is checked too.
+implied = (check.bottom.to_numpy() - check.top.to_numpy()) / MARGIN
+official_diam = np.maximum(official[:, 2] - official[:, 0], official[:, 3] - official[:, 1])
+size_ratio = implied / official_diam
+print("box size vs the official-merge disc (1.00 = the localiser agrees), by split:")
+print(pd.DataFrame({"split": check.split.to_numpy(), "ratio": size_ratio})
+      .groupby("split").ratio.describe()[["mean", "50%", "max"]].round(2).to_string())
+oversized = int(((size_ratio > 1.25) | (size_ratio < 0.8)).sum())
+print(f"\\nimplausible boxes (>25% too big or >20% too small): {oversized} / {len(check)}")
+if oversized > 0.02 * len(check):
+    raise SystemExit(
+        f"\\nSTOP. {oversized} boxes are the wrong size for their disc. Containment will not "
+        "catch this - an over-large box contains everything while putting the disc at a "
+        "fraction of its scale.\\nCheck the localiser before exporting crops; do not train "
+        "on these.")
+
 bad = report[~report.contains_union]
-print(f"eyes where the frozen box clips an expert's disc: {len(bad)} / {len(report)}")
+print(f"\\neyes where the frozen box clips an expert's disc: {len(bad)} / {len(report)}")
 if len(bad):
     print("   by split - failures concentrated on Canon would be a localiser problem, "
           "not a margin problem:")
@@ -623,12 +653,21 @@ keep = set(report.loc[report.contains_union, "image_id"])
 train_set, val_set = set(split_ids["train"]), set(split_ids["val"])
 manifest, t0 = [], time.time()
 
+# A crop is only reusable if it was cut with the boxes we are holding now. Without this
+# stamp, fixing a box bug would leave the old crops in place and the fix would do nothing.
+STAMP = os.path.join(WORK, "crops", "built_from.json")
+box_sha = json.load(open(SHA_FILE))["sha256"]
+previous = json.load(open(STAMP))["sha256"] if os.path.exists(STAMP) else None
+reuse = previous == box_sha
+if previous and not reuse:
+    print("the boxes changed since these crops were written - re-cutting every eye\\n")
+
 for n, (_, row) in enumerate(boxes.iterrows(), 1):
     image_id = row.image_id
     rel = os.path.join("crops", f"{image_id}.npz")
     if image_id not in keep:
         continue
-    if os.path.exists(os.path.join(WORK, rel)):           # resume after a disconnect
+    if reuse and os.path.exists(os.path.join(WORK, rel)):   # resume after a disconnect
         manifest.append({"image_id": image_id, "npz": rel,
                          "camera": inventory.loc[inventory.image_id == image_id,
                                                  "camera"].iloc[0],
@@ -670,6 +709,8 @@ for n, (_, row) in enumerate(boxes.iterrows(), 1):
 
 manifest = pd.DataFrame(manifest)
 manifest.to_csv(os.path.join(WORK, "crops", "manifest.csv"), index=False)
+json.dump({"sha256": box_sha, "box_rule": BOX_RULE, "n": len(manifest)},
+          open(STAMP, "w"), indent=2)
 print(f"\\n{len(manifest)} crops ready in {time.time() - t0:.0f}s")
 print(manifest.groupby(["part", "camera"]).size().to_string())
 '''),

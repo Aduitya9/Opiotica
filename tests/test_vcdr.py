@@ -183,6 +183,36 @@ def test_edge_adjacent_disc_is_contained_by_padding_not_clipping():
     assert padded[1] < 0, "the fixed box must be allowed to extend past the border"
 
 
+def test_largest_component_ignores_stray_false_positives():
+    """Regression: the real run put 68 Canon eyes in boxes up to 5.3x too large.
+
+    The bounding box of EVERY positive pixel spans the image as soon as the segmentation head
+    fires once in a corner. Containment cannot catch it - an over-large box contains
+    everything - so the fix has to happen before the box is taken.
+    """
+    mask = np.zeros((400, 400), dtype=bool)
+    mask[180:220, 180:220] = True          # the disc
+    mask[5, 390] = True                    # one stray pixel in a corner
+    assert crops.mask_box(mask) == (5, 180, 220, 391), "the stray pixel balloons the raw box"
+    cleaned = crops.largest_component(mask)
+    assert crops.mask_box(cleaned) == (180, 180, 220, 220)
+    assert cleaned.sum() == 1600
+
+    side_raw = crops.square_box(mask, (400, 400), margin=1.8)[2] - \
+        crops.square_box(mask, (400, 400), margin=1.8)[0]
+    side_fixed = crops.square_box(cleaned, (400, 400), margin=1.8)[2] - \
+        crops.square_box(cleaned, (400, 400), margin=1.8)[0]
+    assert side_raw > 4 * side_fixed, "this is the 5x blow-up seen on the real data"
+
+
+def test_largest_component_is_a_no_op_when_there_is_one_blob():
+    mask = np.zeros((50, 50), dtype=bool)
+    mask[10:20, 10:20] = True
+    assert (crops.largest_component(mask) == mask).all()
+    empty = np.zeros((10, 10), dtype=bool)
+    assert not crops.largest_component(empty).any()
+
+
 def test_crop_pads_instead_of_wrapping_around():
     """A negative slice index would paste the far side of the retina into the crop."""
     image = np.arange(100, dtype=np.uint8).reshape(10, 10)

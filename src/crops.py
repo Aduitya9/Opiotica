@@ -19,6 +19,28 @@ import pandas as pd
 DEFAULT_MARGIN = 2.0  # box side = margin x disc diameter
 
 
+def largest_component(mask: np.ndarray) -> np.ndarray:
+    """Keep only the biggest connected blob in a predicted mask.
+
+    A segmentation head returns scattered false positives as well as the structure. Taking the
+    bounding box of *every* positive pixel then balloons the box to span the whole image: one
+    stray pixel in a corner is enough. Measured on the real run, that put 68 of 800 Canon
+    evaluation eyes in boxes up to 5.3x too large, centred as much as 614 px from the disc -
+    and containment did not catch it, because an over-large box trivially contains everything.
+
+    The optic disc is a single blob, so the largest component is the right one.
+    """
+    from scipy import ndimage
+
+    if not mask.any():
+        return mask
+    labelled, count = ndimage.label(mask)
+    if count <= 1:
+        return mask
+    sizes = ndimage.sum(mask, labelled, range(1, count + 1))
+    return labelled == (1 + int(np.argmax(sizes)))
+
+
 def mask_box(mask: np.ndarray) -> tuple[int, int, int, int]:
     """Tight bounding box of a boolean mask as (top, left, bottom, right), end-exclusive."""
     rows = np.nonzero(mask.any(axis=1))[0]
