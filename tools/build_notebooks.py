@@ -557,6 +557,17 @@ padded = report[report.padding_fraction > 0]
 print(f"eyes whose box extends past the image border: {len(padded)} / {len(report)}"
       f"  (max padding {100 * report.padding_fraction.max():.1f}% of the crop)")
 print("   that padding is black, which is what a fundus surround already is\\n")
+
+# Amendment 4: padding is far commoner on Zeiss, which is the split we train on. It cancels
+# in Delta_model (same box for every label source) but the asymmetry is reported, and
+# notebook 02 repeats the gate on the unpadded evaluation eyes as a sensitivity check.
+split_pad = (report.merge(inventory[["image_id", "split", "camera"]], on="image_id")
+             .assign(padded=lambda d: d.padding_fraction > 0)
+             .groupby(["split", "camera"]).padded.agg(["sum", "count"]))
+split_pad["percent"] = (100 * split_pad["sum"] / split_pad["count"]).round(1)
+print("padding by split - expect roughly 33% on Zeiss against 2-4% on Canon:")
+print(split_pad.to_string())
+print()
 bad = report[~report.contains_union]
 print(f"eyes where the frozen box clips an expert's disc: {len(bad)} / {len(report)}")
 print("\\nsmallest slack in pixels (how close the box came to clipping):")
@@ -795,8 +806,21 @@ def load(label_source, seed):
 per_seed = [float(np.nanmean(load("user1", s) - load("user7", s))) for s in (42, 43, 44)]
 DELTA_MODEL = float(np.mean(per_seed))
 
+# Amendment 4 sensitivity check: repeat on the evaluation eyes with no black padding.
+# The padding is identical for every label source so it should cancel - this proves it did.
+cont = pd.read_csv(os.path.join(WORK, "results", "containment.csv"), dtype={"image_id": str})
+aligned = eval_rows.merge(cont[["image_id", "padding_fraction"]], on="image_id", how="left")
+unpadded = (aligned.padding_fraction.fillna(0) == 0).to_numpy()
+per_seed_unpadded = [float(np.nanmean((load("user1", s) - load("user7", s))[unpadded]))
+                     for s in (42, 43, 44)]
+DELTA_UNPADDED = float(np.mean(per_seed_unpadded))
+
 verdict = vcdr.gate(DELTA_MODEL, SD_SEED)
 verdict["delta_per_seed"] = per_seed
+verdict["delta_unpadded"] = DELTA_UNPADDED
+verdict["n_unpadded_eval"] = int(unpadded.sum())
+verdict["padding_changes_the_answer"] = bool(
+    abs(DELTA_UNPADDED - DELTA_MODEL) > 3 * SD_SEED)
 verdict["gpu"] = card
 verdict["refer_at_0.6"] = {s: float(summary.loc[s, "refer_06"]) for s in summary.index}
 json.dump(verdict, open(os.path.join(WORK, "results", "gate.json"), "w"), indent=2)
@@ -808,6 +832,10 @@ print(f"  Delta_model (trained)      {verdict['delta_model']:.4f}    per seed: "
 print(f"  retention                  {100 * verdict['retention']:.1f}%     (must be >= 50%)")
 print(f"  3 x SD_seed                {verdict['noise_floor_3sd']:.4f}"
       f"    (Delta_model must exceed it)")
+print(f"  unpadded eyes only         {verdict['delta_unpadded']:.4f}   "
+      f"n={verdict['n_unpadded_eval']}"
+      + ("   *** differs by more than the noise floor: the padding matters, say so ***"
+         if verdict["padding_changes_the_answer"] else "   (agrees - padding cancelled)"))
 print(f"  hardware                   {card}")
 print("=" * 74)
 print(f"  {verdict['verdict']}")

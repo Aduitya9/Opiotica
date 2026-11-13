@@ -279,3 +279,39 @@ cut-off is knife-edge whenever the population sits near it.** Adopted now, befor
    in the study and why.
 3. Because this *enlarges* the headline effect, it is logged here rather than quietly adopted.
    The direction of a change is not a reason to skip recording it.
+
+### Amendment 4 — 13 November 2026 — padding is asymmetric between the cameras
+
+**No model had been trained when this was written. The gate in §5 is untouched.**
+
+A consequence of Amendment 2, found while pre-flighting notebook 01. At margin 1.8, 155 of
+1,200 boxes extend past the image border and are padded with black. They are **not** spread
+evenly:
+
+| split | camera | role | padded |
+|---|---|---|---|
+| Training-400 | Zeiss | **train** | **132 / 400 (33 %)** |
+| Validation-400 | Canon | evaluate | 15 / 400 (3.8 %) |
+| Test-400 | Canon | evaluate | 8 / 400 (2.0 %) |
+
+Median padding among padded eyes is 9.3 %, maximum 26.5 %; 74 eyes exceed 10 %.
+
+This is a property of the Zeiss images — their discs sit closer to a border — not of the
+choice of margin. Every crop rule that guarantees containment pads more on Zeiss, and the
+alternative, clamping, clips ten eyes' annotations outright. Padding is the lesser error and
+black matches the surround a fundus photograph already has.
+
+**It cannot bias the primary estimand.** `Delta_model` is a within-eye difference between two
+models trained on the *same* images with the *same* frozen box, so the padding is byte-identical
+on both sides and cancels. What it can affect is absolute segmentation quality, and therefore
+the absolute referral rates, because a third of training crops carry a wedge that almost no
+evaluation crop has.
+
+**Pre-registered now, before any model exists:**
+
+1. The gate is computed on all 800 Canon evaluation eyes, as §5 already says. Unchanged.
+2. **Sensitivity analysis, reported alongside it:** `Delta_model` recomputed on the 777
+   evaluation eyes with no padding. If the two disagree by more than the seed-noise floor, the
+   padding matters and the paper says so.
+3. The per-split padding table above goes into the Methods section. It is a property of the
+   data worth reporting, not an embarrassment to hide.
