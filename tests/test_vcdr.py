@@ -122,6 +122,47 @@ def test_frozen_box_contains_every_expert_disc():
     assert crops.smallest_safe_margin(base, [base, liberal], shape) <= 2.0
 
 
+PNG_MEASURED = os.path.join(ROOT, "analysis", "r7_png_mask_vcdr.csv")
+
+
+@pytest.fixture(scope="module")
+def png_table() -> pd.DataFrame:
+    if not os.path.exists(PNG_MEASURED):
+        pytest.skip("r7_png_mask_vcdr.csv not generated yet")
+    return pd.read_csv(PNG_MEASURED, dtype={"image_id": str})
+
+
+def test_png_masks_agree_with_the_ellipse_sheets(png_table):
+    """The training targets are the PNG masks; the ellipses are only an analysis convenience.
+
+    If these two ever diverge by more than the tolerance, a number the paper quotes has moved
+    and PREREGISTRATION.md needs an amendment - not a quiet edit.
+    """
+    assert len(png_table) == 1200
+    png_off = vcdr.offsets(png_table, RATERS)
+    ell_off = vcdr.offsets(pd.read_csv(MEASURED, dtype={"folder": str}), RATERS)
+    assert (png_off - ell_off).abs().max() < 0.02, "per-expert offsets drifted apart"
+
+
+def test_delta_ann_from_png_masks_still_matches_the_gate(png_table):
+    """The gate in PREREGISTRATION section 5 is defined against DELTA_ANN. Guard it."""
+    delta = float((png_table["user1"] - png_table["user7"]).mean())
+    assert delta == pytest.approx(0.2647, abs=0.002)
+    assert abs(delta - vcdr.DELTA_ANN) < 0.01, (
+        "Delta_ann moved beyond the pre-registered tolerance; amend section 10 before the gate")
+
+
+def test_user1_referral_rate_is_the_knife_edge_number(png_table):
+    """Amendment 3: user1's distribution is centred on the cut-off, so their referral rate
+    is the least stable figure in the study. The middle five are not."""
+    rates = {r: vcdr.referral_rate(png_table[r], 0.6) for r in RATERS}
+    assert rates["user1"] == pytest.approx(0.667, abs=0.01)
+    assert rates["user7"] == pytest.approx(0.034, abs=0.01)
+    middle = [rates[r] for r in RATERS if r not in ("user1", "user7")]
+    assert 0.08 <= min(middle) and max(middle) <= 0.14, "the middle five should be stable"
+    assert rates["user1"] / rates["user7"] > 15
+
+
 def test_edge_adjacent_disc_is_contained_by_padding_not_clipping():
     """Regression: notebook 00's margin table plateaued at 1190/1200 because of this.
 

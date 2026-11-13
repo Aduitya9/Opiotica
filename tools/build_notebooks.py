@@ -342,13 +342,22 @@ print("frozen to results/crop_margin.json - never recomputed later")
 '''),
     ("markdown", """## What to record before moving on
 
+These values were reproduced independently from the release on 13 November 2026. If your run
+disagrees, something has changed and it needs explaining before notebook 01 — do not carry on.
+
 | | expected |
 |---|---|
 | Eyes with all 7 experts + the official merge | **1200** |
 | Eyes with a clean clinical label | **1195** (119 glaucoma) |
 | Resolutions per split | Zeiss 2124×2056 / Canon 1634×1634 |
-| `Delta_ann` from the PNG masks | compare against **0.269**; amend §10 if it moved > 0.01 |
-| Chosen crop margin | written to `results/crop_margin.json` |
+| `Delta_ann` from the PNG masks | **≈ 0.2647**, i.e. −0.004 from the pre-registered 0.269 — inside tolerance, so the gate does not move |
+| user1 / user7 offsets | **+0.152 / −0.113** |
+| Containment | **1200 / 1200** at margin **1.8** |
+| Chosen crop margin | **1.8**, written to `results/crop_margin.json` |
+
+If the margin cell *stops* with an error instead of printing a margin, that is it working: it
+refuses to pick the largest margin as a consolation prize. An earlier version did exactly that
+and chose 3.0, which would have shrunk the optic disc to a third of every crop.
 
 Any eye missing a mask is **excluded and counted in the paper**, never silently dropped.
 

@@ -4,27 +4,45 @@
 screening.**
 
 A model inherits the labelling convention of whoever drew its training masks. On the same 1,200
-REFUGE images, the seven experts who annotated them would refer between **3.3 % and 56.8 %** of
-eyes at the standard vCDR ≥ 0.6 cut-off — a seventeen-fold difference, on identical pixels. This
+REFUGE images, the seven experts who annotated them would refer between **3.4 % and 66.7 %** of
+eyes at the standard vCDR ≥ 0.6 cut-off — a **19.5-fold** difference, on identical pixels. This
 project measures how much of that survives into a trained model and into a deployed referral
 rate, and then fixes it.
+
+Those figures are measured from the **official per-expert PNG masks**, which are what a model
+actually trains on. The middle five experts sit in a narrow band, **8.3 %–13.3 %**; the spread
+is driven by the two extremes, and user1's figure is the least stable number in the study
+because their distribution is centred on the cut-off (`PREREGISTRATION.md` §10, Amendment 3).
 
 ```
 +========================================================================+
 |  SAME 1,200 EYES. SAME PIXELS. SEVEN EXPERTS.                          |
 +========================================================================+
 |                                                                        |
-|  conservative <------------|------------------------> liberal         |
-|   user7   user3 user4  OFFICIAL  user2              user1             |
-|   -0.121  -0.022 -0.015  +0.009  +0.007            +0.148             |
+|  vCDR offset from the seven-expert consensus, per expert:             |
 |                                                                        |
-|   refer@0.6   3.3%    ...    9.8%    ...           56.8%              |
+|  conservative <-----------|------------------------> liberal          |
+|    user7  user4 user3 user6 user5 user2              user1            |
+|   -0.113  -.018 -.010 -.009 -.004 +.001             +0.152            |
+|                             ^                                          |
+|                       OFFICIAL MERGE +0.000                            |
 |                                                                        |
-|  ICC(2,1) 0.436  vs  ICC(3,1) 0.689                                    |
+|  refer@0.6   3.4%   13.2% 10.8%  9.1%  8.2% 10.0%    66.7%            |
+|                                                                        |
+|  ICC(2,1) 0.438  vs  ICC(3,1) 0.693                                    |
 |  -> the gap between them is the part a level correction can remove     |
 |     with no labels at all.                                             |
 +========================================================================+
 ```
+
+Two things in that picture matter more than the headline:
+
+* **The released REFUGE label is not skewed.** It sits at **+0.000** from the consensus. So
+  this project does *not* claim that REFUGE-trained models learned a biased label — the
+  exposure is *cross-dataset* conventions and single-expert datasets being a lottery.
+* **Offset does not determine referral rate.** user4 is the second most conservative by offset
+  yet refers 13.2 %, more than user2 at +0.001. Where an expert's distribution sits relative to
+  the cut-off matters as much as where its centre is.
 
 ## What is already measured, and what is not
 
@@ -55,8 +73,8 @@ src/crops.py           the frozen box and its containment proof
 src/labels.py          the 9 trained label sources and the 3 analysed-only ones
 src/train.py           one training loop, identical for every label source
 notebooks/00..02       inventory -> frozen localiser -> the gate
-analysis/r1..r6        the pilots, and the CSVs the pre-registration quotes
-tests/                 12 tests that re-derive every quoted number
+analysis/r1..r7        the pilots, and the CSVs the pre-registration quotes
+tests/                 17 tests that re-derive every quoted number
 tools/                 notebook builder, link checker
 ```
 

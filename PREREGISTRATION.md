@@ -235,3 +235,47 @@ padding, containment reaches **1200/1200 at margin 1.8**.
    padding and not by clipping, and `crop` must pad rather than wrap.
 5. Notebook 00 must be re-run to re-derive the margin. It now reloads the saved inventory and
    measurements, so the re-run costs minutes, not the full pass.
+
+### Amendment 3 — 13 November 2026 — the §1 numbers are restated from the PNG masks
+
+**No model had been trained when this was written. The gate in §5 is untouched.**
+
+§1's figures were measured from the ellipse sheets. §4 requires training on the **official
+per-expert PNG masks**, so the annotation numbers are now restated from those. Computed
+independently of notebook 00, over all 1,200 eyes (`analysis/r7_png_mask_vcdr.csv`):
+
+| | PNG masks | ellipse sheets | difference |
+|---|---|---|---|
+| user1 offset | **+0.152** | +0.149 | +0.004 |
+| user7 offset | **−0.113** | −0.121 | +0.008 |
+| largest single disagreement | — | — | 0.012 (user3) |
+| **Δ_ann** | **0.2647** | 0.2694 | **−0.0043** |
+
+**The gate is unaffected.** The shift is inside the ±0.01 tolerance §10/Amendment 2 set for it,
+so `vcdr.DELTA_ANN` stays **0.269** and no threshold in §5 moves.
+
+**One number is not stable, and it is the headline one.** Referral at vCDR ≥ 0.6:
+
+```
+            ellipse sheets      PNG masks
+  user1          56.8%     ->     66.7%     <- moved 10 points
+  middle five   8.0-13.1%  ->   8.3-13.3%   <- unchanged
+  user7           3.3%     ->      3.4%     <- unchanged
+  spread           17x     ->     19.5x
+```
+
+Only user1 moves. Their mean vCDR is about 0.615, so the 0.6 cut-off falls where their
+distribution is densest, and a representation difference of 0.004 in the mean pushes roughly a
+tenth of all eyes across the line. Everyone else's distribution is far from the cut-off and
+barely moves.
+
+This is the paper's own thesis turned on the paper: **a referral rate measured at a fixed
+cut-off is knife-edge whenever the population sits near it.** Adopted now, before any model:
+
+1. Annotation-level figures are quoted from the **PNG masks**, because those are the training
+   targets. The ellipse values are reported alongside as the agreement check they are.
+2. The paper reports the referral spread as **19.5× (3.4 %–66.7 %)**, states the middle five
+   separately (8.3 %–13.3 %), and says plainly that user1's figure is the least stable number
+   in the study and why.
+3. Because this *enlarges* the headline effect, it is logged here rather than quietly adopted.
+   The direction of a change is not a reason to skip recording it.

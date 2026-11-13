@@ -115,6 +115,24 @@ which came from the ellipse sheets. If they differ by more than 0.01, stop and a
 amendment to `PREREGISTRATION.md` §10 **before** running notebook 02. The gate is defined
 against `Delta_ann`; silently letting it move is how a pre-registration becomes decoration.
 
+### What the first run found (13 November 2026)
+
+It has already been run once, and it did its job — it caught a defect.
+
+* **`Delta_ann` = 0.2647**, −0.004 from the pre-registered value. Inside tolerance, so the
+  gate does not move. Recorded as Amendment 3, along with a finding worth keeping: user1's
+  referral rate moved ten points between the two representations, because their distribution
+  sits right on the 0.6 cut-off. Everyone else barely moved.
+* **The margin search never reached 100 %.** It plateaued at 1190/1200 and the cell quietly
+  fell back to the *largest* margin, 3.0. The cause was a clamp in `square_box` that collapsed
+  the box for discs near an image border; it is fixed, the box now pads instead, containment
+  reaches **1200/1200 at margin 1.8**, and the fallback has been replaced by a hard stop.
+  Recorded as Amendment 2.
+
+**So notebook 00 must be run once more** to re-derive the margin with the fix. It now reloads
+the saved inventory and measurements, so the re-run is a few minutes rather than the full pass.
+Expect margin **1.8**.
+
 ---
 
 ## DAY 3 — notebook 01: the frozen localiser
